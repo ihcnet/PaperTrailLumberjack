@@ -9,9 +9,9 @@
 
 #import <Foundation/Foundation.h>
 
-#import <CocoaLumberjack.h>
-#import <GCDAsyncSocket.h>
-#import <GCDAsyncUdpSocket.h>
+#import <CocoaAsyncSocket/GCDAsyncSocket.h>
+#import <CocoaAsyncSocket/GCDAsyncUdpSocket.h>
+#import <CocoaLumberjack/CocoaLumberjack.h>
 
 /**
  RMPaperTrailLogger is a custom logger (for CocoaLumberjack) that directs log
