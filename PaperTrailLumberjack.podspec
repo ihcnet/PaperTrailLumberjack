@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = "PaperTrailLumberjack"
-  s.version          = "0.1.8"
+  s.version          = "0.1.9"
   s.summary          = "A CocoaLumberjack logger to post logs to papertrailapp.com"
   s.description      = <<-DESC
 A CocoaLumberjack logger to post log messages to papertrailapp.com.
@@ -33,6 +33,6 @@ A CocoaLumberjack logger to post log messages to papertrailapp.com.
     ss.ios.deployment_target = '8.0'
     ss.osx.deployment_target = '10.10'
     ss.dependency 'PaperTrailLumberjack/Core'
-    ss.dependency 'CocoaLumberjack/Swift', '~> 3.0'
+    ss.dependency 'CocoaLumberjack/Swift', '~> 3.4.2'
   end
 end
