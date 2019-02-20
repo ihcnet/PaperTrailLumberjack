@@ -12,10 +12,12 @@
 @interface RMPaperTrailLogger () {
     GCDAsyncSocket *_tcpSocket;
     GCDAsyncUdpSocket *_udpSocket;
+    dispatch_queue_t *_dispatchQueue;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
 @property (nonatomic, strong) GCDAsyncUdpSocket *udpSocket;
+@property (nonatomic, strong) dispatch_queue_t *dispatchQueue;
 
 @end
 
@@ -42,6 +44,7 @@
         _sharedInstance.useTcp = YES;
         _sharedInstance.useTLS = YES;
         _sharedInstance.timeout = -1;
+        _dispatchQueue = dispatch_queue_create(@"RMPaperTrailLoggerDispatchQueue", DISPATCH_QUEUE_SERIAL);
     });
     
     return _sharedInstance;
@@ -115,7 +118,7 @@
         return;
     
     if (self.udpSocket == nil) {
-        GCDAsyncUdpSocket *udpSocket = [[GCDAsyncUdpSocket alloc] initWithDelegate:self delegateQueue:dispatch_get_main_queue()];
+        GCDAsyncUdpSocket *udpSocket = [[GCDAsyncUdpSocket alloc] initWithDelegate:self delegateQueue:self.dispatchQueue];
         self.udpSocket = udpSocket;
     }
     
@@ -131,7 +134,7 @@
     
     @synchronized(self) {
         if (self.tcpSocket == nil) {
-            GCDAsyncSocket *tcpSocket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:dispatch_get_main_queue()];
+            GCDAsyncSocket *tcpSocket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:self.dispatchQueue];
             self.tcpSocket = tcpSocket;
             [self connectTcpSocket];
         }
