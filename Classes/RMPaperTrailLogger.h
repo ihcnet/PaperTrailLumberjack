@@ -56,6 +56,11 @@
 @property (nonatomic, assign) BOOL useTLS;
 
 /**
+ Specifies the timeout used to make request. Default is `-1`.
+ */
+@property (nonatomic, assign) NSTimeInterval timeout;
+
+/**
  Returns a initialized singleton instance of this logger
  */
 + (RMPaperTrailLogger* _Nullable)sharedInstance;

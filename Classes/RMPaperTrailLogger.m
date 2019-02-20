@@ -28,6 +28,7 @@
 
 @synthesize tcpSocket = _tcpSocket;
 @synthesize udpSocket = _udpSocket;
+@synthesize timeout = _timeout;
 
 +(RMPaperTrailLogger *) sharedInstance
 {
@@ -40,6 +41,7 @@
         _sharedInstance.logFormatter = logFormatter;
         _sharedInstance.useTcp = YES;
         _sharedInstance.useTLS = YES;
+        _sharedInstance.timeout = -1;
     });
     
     return _sharedInstance;
@@ -119,7 +121,7 @@
     
     NSData *logData = [message dataUsingEncoding:NSUTF8StringEncoding];
     
-    [self.udpSocket sendData:logData toHost:self.host port:self.port withTimeout:-1 tag:1];
+    [self.udpSocket sendData:logData toHost:self.host port:self.port withTimeout:self.timeout tag:1];
 }
 
 -(void) sendLogOverTcp:(NSString *) message
@@ -136,7 +138,7 @@
     }
     
     NSData *logData = [message dataUsingEncoding:NSUTF8StringEncoding];
-    [self.tcpSocket writeData:logData withTimeout:-1 tag:1];
+    [self.tcpSocket writeData:logData withTimeout:self.timeout tag:1];
 }
 
 -(void) connectTcpSocket
