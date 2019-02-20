@@ -44,7 +44,7 @@
         _sharedInstance.useTcp = YES;
         _sharedInstance.useTLS = YES;
         _sharedInstance.timeout = -1;
-        _sharedInstance.dispatchQueue = _dispatchQueue = dispatch_queue_create("RMPaperTrailLoggerDispatchQueue", DISPATCH_QUEUE_SERIAL);
+        _sharedInstance.dispatchQueue = dispatch_queue_create("RMPaperTrailLoggerDispatchQueue", DISPATCH_QUEUE_SERIAL);
     });
     
     return _sharedInstance;
