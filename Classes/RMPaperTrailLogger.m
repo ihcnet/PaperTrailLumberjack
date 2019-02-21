@@ -225,7 +225,7 @@ static NSTimeInterval const kMaxBackOffTime = 60.0 * 10.0; // 10 minutes
     @synchronized (self) {
         NSTimeInterval currentTimeInterval = MIN(pow(2.0, self.failedAttempts) * kBaseWaitTime, kMaxBackOffTime);
         self.timeOfNextExecution = [[NSDate date] dateByAddingTimeInterval:currentTimeInterval];
-        self.failedAttempts++
+        self.failedAttempts++;
     }
 }
 
