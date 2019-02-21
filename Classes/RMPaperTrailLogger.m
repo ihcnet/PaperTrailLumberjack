@@ -9,17 +9,24 @@
 #import "RMPaperTrailLogger.h"
 #import "RMSyslogFormatter+Private.h"
 
+static NSTimeInterval const kBaseWaitTime = 30.0;
+static NSTimeInterval const kMaxBackOffTime = 60.0 * 10.0; // 10 minutes
+
 @interface RMPaperTrailLogger () {
     GCDAsyncSocket *_tcpSocket;
     GCDAsyncUdpSocket *_udpSocket;
     dispatch_queue_t _dispatchQueue;
     NSOperationQueue *_operationQueue;
+    NSDate *_timeOfNextExecution;
+    NSUInteger *_failedAttempts;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
 @property (nonatomic, strong) GCDAsyncUdpSocket *udpSocket;
 @property (nonatomic, strong) dispatch_queue_t dispatchQueue;
 @property (nonatomic, strong) NSOperationQueue *operationQueue;
+@property (nonatomic, strong) NSDate *timeOfNextExecution;
+@property (nonatomic, strong) NSUInteger *failedAttempts;
 
 @end
 
@@ -49,6 +56,8 @@
         _sharedInstance.dispatchQueue = dispatch_queue_create("RMPaperTrailLoggerDispatchQueue", DISPATCH_QUEUE_SERIAL);
         _sharedInstance.maxConcurrentOperationCount = NSOperationQueueDefaultMaxConcurrentOperationCount;
         _sharedInstance.operationQueue = [[NSOperationQueue alloc] init];
+        _sharedInstance.failedAttempts = 0;
+        _sharedInstance.timeOfNextExecution = nil;
     });
     
     return _sharedInstance;
@@ -197,16 +206,44 @@
 - (void)socket:(GCDAsyncSocket *)sock didWriteDataWithTag:(long)tag
 {
     NSLog(@"Socket did write data");
+    [self resetBackoff];
 }
 
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didSendDataWithTag:(long)tag
 {
     NSLog(@"UDP Socket did write data");
+    [self resetBackoff];
 }
 
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didNotSendDataWithTag:(long)tag dueToError:(NSError *)error
 {
     NSLog(@"UDP Socket Error: %@", error.localizedDescription);
+    [self backoff];
+}
+
+-(void)backoff {
+    @synchronized (self) {
+        NSTimeInterval currentTimeInterval = MIN(pow(2.0, self.failedAttempts) * kBaseWaitTime, kMaxBackOffTime);
+        self.timeOfNextExecution = [[NSDate date] dateByAddingTimeInterval:currentTimeInterval];
+        self.failedAttempts++
+    }
+}
+
+-(void)resetBackoff {
+    @synchronized (self) {
+        self.timeOfNextExecution = nil;
+        self.failedAttempts = 0;
+    }
+}
+
+-(BOOL)shouldBackoff {
+    @synchronized (self) {
+        if (self.timeOfNextExecution == nil) {
+            return NO;
+        }
+        NSDate *now = [NSDate date];
+        return [now isEqualToDate:[now earlierDate:self.timeOfNextExecution]];
+    }
 }
 
 #endif
