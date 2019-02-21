@@ -99,7 +99,7 @@ static NSTimeInterval const kMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 }
 
 -(void) doLogMessage:(DDLogMessage *)logMessage {
-    if (self.host == nil || self.host.length == 0 || self.port == 0)
+    if (self.host == nil || self.host.length == 0 || self.port == 0 || [self shouldBackoff])
         return;
     
     NSString *logMsg = logMessage.message;
