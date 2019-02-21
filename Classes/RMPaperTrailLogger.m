@@ -47,6 +47,7 @@
         _sharedInstance.useTLS = YES;
         _sharedInstance.timeout = -1;
         _sharedInstance.dispatchQueue = dispatch_queue_create("RMPaperTrailLoggerDispatchQueue", DISPATCH_QUEUE_SERIAL);
+        _sharedInstance.maxConcurrentOperationCount = NSOperationQueueDefaultMaxConcurrentOperationCount;
         _sharedInstance.operationQueue = [[NSOperationQueue alloc] init];
     });
     
@@ -116,6 +117,7 @@
 
 -(void) logMessage:(DDLogMessage *)logMessage
 {
+    self.operationQueue.maxConcurrentOperationCount = self.maxConcurrentOperationCount;
     NSInvocationOperation* theOp = [[NSInvocationOperation alloc] initWithTarget:self
                                                                         selector:@selector(doLogMessage:) object:logMessage];
     [self.operationQueue addOperation: theOp];

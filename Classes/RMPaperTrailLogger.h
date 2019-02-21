@@ -60,6 +60,8 @@
  */
 @property (nonatomic, assign) NSTimeInterval timeout;
 
+@property NSInteger maxConcurrentOperationCount;
+
 /**
  Returns a initialized singleton instance of this logger
  */
