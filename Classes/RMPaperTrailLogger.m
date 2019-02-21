@@ -13,11 +13,13 @@
     GCDAsyncSocket *_tcpSocket;
     GCDAsyncUdpSocket *_udpSocket;
     dispatch_queue_t _dispatchQueue;
+    NSOperationQueue *_operationQueue;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
 @property (nonatomic, strong) GCDAsyncUdpSocket *udpSocket;
 @property (nonatomic, strong) dispatch_queue_t dispatchQueue;
+@property (nonatomic, strong) NSOperationQueue *operationQueue;
 
 @end
 
@@ -45,6 +47,7 @@
         _sharedInstance.useTLS = YES;
         _sharedInstance.timeout = -1;
         _sharedInstance.dispatchQueue = dispatch_queue_create("RMPaperTrailLoggerDispatchQueue", DISPATCH_QUEUE_SERIAL);
+        _sharedInstance.operationQueue = [[NSOperationQueue alloc] init];
     });
     
     return _sharedInstance;
@@ -85,8 +88,7 @@
     }
 }
 
--(void) logMessage:(DDLogMessage *)logMessage
-{
+-(void) doLogMessage:(DDLogMessage *)logMessage {
     if (self.host == nil || self.host.length == 0 || self.port == 0)
         return;
     
@@ -110,6 +112,13 @@
     } else {
         [self sendLogOverTcp:logMsg];
     }
+}
+
+-(void) logMessage:(DDLogMessage *)logMessage
+{
+    NSInvocationOperation* theOp = [[NSInvocationOperation alloc] initWithTarget:self
+                                                                        selector:@selector(doLogMessage:) object:logMessage];
+    [self.operationQueue addOperation: theOp];
 }
 
 -(void) sendLogOverUdp:(NSString *) message
