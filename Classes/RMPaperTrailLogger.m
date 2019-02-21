@@ -9,13 +9,25 @@
 #import "RMPaperTrailLogger.h"
 #import "RMSyslogFormatter+Private.h"
 
+static NSTimeInterval const kDefaultBaseWaitTime = 30.0; // 30 seconds
+static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
+
+
 @interface RMPaperTrailLogger () {
     GCDAsyncSocket *_tcpSocket;
     GCDAsyncUdpSocket *_udpSocket;
+    NSTimeInterval _waitTimeBase;
+    NSTimeInterval _maxWaitTime;
+    NSDate *_timeOfNextExecution;
+    NSUInteger _failedAttempts;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
 @property (nonatomic, strong) GCDAsyncUdpSocket *udpSocket;
+@property (nonatomic, assign) NSTimeInterval waitTimeBase;
+@property (nonatomic, assign) NSTimeInterval maxWaitTime;
+@property (nonatomic, strong) NSDate *timeOfNextExecution;
+@property (nonatomic, assign) NSUInteger failedAttempts;
 
 @end
 
@@ -40,6 +52,10 @@
         _sharedInstance.logFormatter = logFormatter;
         _sharedInstance.useTcp = YES;
         _sharedInstance.useTLS = YES;
+        _sharedInstance.waitTimeBase = kDefaultBaseWaitTime;
+        _sharedInstance.maxWaitTime = kDefaultMaxBackOffTime;
+        _sharedInstance.failedAttempts = 0;
+        _sharedInstance.timeOfNextExecution = nil;
     });
     
     return _sharedInstance;
@@ -82,7 +98,7 @@
 
 -(void) logMessage:(DDLogMessage *)logMessage
 {
-    if (self.host == nil || self.host.length == 0 || self.port == 0)
+    if (self.host == nil || self.host.length == 0 || self.port == 0 || [self shouldBackoff])
         return;
     
     NSString *logMsg = logMessage.message;
@@ -161,38 +177,76 @@
 
 #pragma mark - GCDAsyncDelegate methods
 
-#ifdef DEBUG
+
 
 - (void)socket:(GCDAsyncSocket *)sock didConnectToHost:(NSString *)host port:(UInt16)port
 {
+    #ifdef DEBUG
     NSLog(@"Socket did connect to host");
+    #endif
 }
 
 - (void)socketDidSecure:(GCDAsyncSocket *)sock
 {
+    #ifdef DEBUG
     NSLog(@"Socket did secure");
+    #endif
 }
 
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)error
 {
+    #ifdef DEBUG
     NSLog(@"Socket did disconnect. Error: %@", error);
+    #endif
 }
 
 - (void)socket:(GCDAsyncSocket *)sock didWriteDataWithTag:(long)tag
 {
+    #ifdef DEBUG
     NSLog(@"Socket did write data");
+    #endif
+    [self resetBackoff];
 }
 
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didSendDataWithTag:(long)tag
 {
+    #ifdef DEBUG
     NSLog(@"UDP Socket did write data");
+    #endif
+    [self resetBackoff];
 }
 
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didNotSendDataWithTag:(long)tag dueToError:(NSError *)error
 {
+    #ifdef DEBUG
     NSLog(@"UDP Socket Error: %@", error.localizedDescription);
+    #endif
+    [self backoff];
 }
 
-#endif
+-(void)backoff {
+    @synchronized (self) {
+        NSTimeInterval currentTimeInterval = MIN(pow(2.0, self.failedAttempts) * self.waitTimeBase, self.maxWaitTime);
+        self.timeOfNextExecution = [[NSDate date] dateByAddingTimeInterval:currentTimeInterval];
+        self.failedAttempts++;
+    }
+}
+
+-(void)resetBackoff {
+    @synchronized (self) {
+        self.timeOfNextExecution = nil;
+        self.failedAttempts = 0;
+    }
+}
+
+-(BOOL)shouldBackoff {
+    @synchronized (self) {
+        if (self.timeOfNextExecution == nil) {
+            return NO;
+        }
+        NSDate *now = [NSDate date];
+        return [now isEqualToDate:[now earlierDate:self.timeOfNextExecution]];
+    }
+}
 
 @end
