@@ -18,7 +18,7 @@ static NSTimeInterval const kMaxBackOffTime = 60.0 * 10.0; // 10 minutes
     dispatch_queue_t _dispatchQueue;
     NSOperationQueue *_operationQueue;
     NSDate *_timeOfNextExecution;
-    NSUInteger *_failedAttempts;
+    NSUInteger _failedAttempts;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
@@ -26,7 +26,7 @@ static NSTimeInterval const kMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 @property (nonatomic, strong) dispatch_queue_t dispatchQueue;
 @property (nonatomic, strong) NSOperationQueue *operationQueue;
 @property (nonatomic, strong) NSDate *timeOfNextExecution;
-@property (nonatomic, strong) NSUInteger *failedAttempts;
+@property (nonatomic, assign) NSUInteger failedAttempts;
 
 @end
 
