@@ -98,8 +98,11 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 
 -(void) logMessage:(DDLogMessage *)logMessage
 {
-    if (self.host == nil || self.host.length == 0 || self.port == 0 || [self shouldBackoff])
+    NSLog(@"RMPaperTrailLogger Entered logMessage");
+    if (self.host == nil || self.host.length == 0 || self.port == 0 || [self shouldBackoff]) {
+        NSLog(@"RMPaperTrailLogger Exiting logMessage early.");
         return;
+    }
     
     NSString *logMsg = logMessage.message;
     if (logMsg == nil) {
@@ -125,6 +128,7 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 
 -(void) sendLogOverUdp:(NSString *) message
 {
+    NSLog(@"RMPaperTrailLogger Entered logMessage");
     if (message == nil || message.length == 0)
         return;
     
@@ -182,21 +186,21 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 - (void)socket:(GCDAsyncSocket *)sock didConnectToHost:(NSString *)host port:(UInt16)port
 {
     #ifdef DEBUG
-    NSLog(@"Socket did connect to host");
+    NSLog(@"RMPaperTrailLogger Socket did connect to host");
     #endif
 }
 
 - (void)socketDidSecure:(GCDAsyncSocket *)sock
 {
     #ifdef DEBUG
-    NSLog(@"Socket did secure");
+    NSLog(@"RMPaperTrailLogger Socket did secure");
     #endif
 }
 
 - (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)error
 {
     #ifdef DEBUG
-    NSLog(@"Socket did disconnect. Error: %@", error);
+    NSLog(@"RMPaperTrailLogger Socket did disconnect. Error: %@", error);
     #endif
 }
 
@@ -211,7 +215,7 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didSendDataWithTag:(long)tag
 {
     #ifdef DEBUG
-    NSLog(@"UDP Socket did write data");
+    NSLog(@"RMPaperTrailLogger UDP Socket did write data");
     #endif
     [self resetBackoff];
 }
@@ -219,20 +223,23 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didNotSendDataWithTag:(long)tag dueToError:(NSError *)error
 {
     #ifdef DEBUG
-    NSLog(@"UDP Socket Error: %@", error.localizedDescription);
+    NSLog(@"RMPaperTrailLogger UDP Socket Error: %@", error.localizedDescription);
     #endif
     [self backoff];
 }
 
 -(void)backoff {
+    NSLog(@"RMPaperTrailLogger Entered backoff");
     @synchronized (self) {
         NSTimeInterval currentTimeInterval = MIN(pow(2.0, self.failedAttempts) * self.waitTimeBase, self.maxWaitTime);
         self.timeOfNextExecution = [[NSDate date] dateByAddingTimeInterval:currentTimeInterval];
         self.failedAttempts++;
+        NSLog(@"RMPaperTrailLogger failedAttempts: %lu timeOfNextExecution: %@", (unsigned long)self.failedAttempts, self.timeOfNextExecution);
     }
 }
 
 -(void)resetBackoff {
+    NSLog(@"RMPaperTrailLogger Entered resetBackoff");
     @synchronized (self) {
         self.timeOfNextExecution = nil;
         self.failedAttempts = 0;
@@ -240,12 +247,15 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 }
 
 -(BOOL)shouldBackoff {
+    NSLog(@"RMPaperTrailLogger Entered shouldBackoff");
     @synchronized (self) {
         if (self.timeOfNextExecution == nil) {
             return NO;
         }
         NSDate *now = [NSDate date];
-        return [now isEqualToDate:[now earlierDate:self.timeOfNextExecution]];
+        BOOL result = [now isEqualToDate:[now earlierDate:self.timeOfNextExecution]];
+        NSLog(@"RMPaperTrailLogger shouldBackoff Result: %hhd", result);
+        return result;
     }
 }
 
