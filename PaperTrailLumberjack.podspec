@@ -22,7 +22,7 @@ A CocoaLumberjack logger to post log messages to papertrailapp.com.
   s.subspec 'Core' do |ss|
     ss.source_files = 'Classes/*.{h,m}'
     ss.dependency 'CocoaLumberjack', '~> 3.0'
-    ss.dependency 'CocoaAsyncSocket', '~> 7.6', :git => 'https://github.com/ihcnet/CocoaAsyncSocket.git', :commit => '498ff899b20f6c51936661e3ea55100db1e6e354'
+    ss.dependency 'CocoaAsyncSocket', '~> 7.5', :git => 'https://github.com/ihcnet/CocoaAsyncSocket.git', :commit => '498ff899b20f6c51936661e3ea55100db1e6e354'
   end
 
   s.subspec 'Default' do |ss|
