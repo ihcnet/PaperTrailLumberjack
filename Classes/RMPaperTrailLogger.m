@@ -28,7 +28,6 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     NSTimer *_cleanUpTimer;
     NSTimeInterval _inFlightTTL;
     NSTimeInterval _inFlightPurgeFrequency;
-    NSTimeInterval _internalStartTime;
     NSMutableDictionary *_tagToDate;
 }
 
@@ -44,7 +43,6 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
 @property (nonatomic, strong) NSTimer *cleanUpTimer;
 @property (nonatomic, assign) NSTimeInterval inFlightTTL;
 @property (nonatomic, assign) NSTimeInterval inFlightPurgeFrequency;
-@property (nonatomic, assign) NSTimeInterval internalStartTime;
 
 @end
 
@@ -77,7 +75,6 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
         _sharedInstance.inFlightDates = [[NSMutableArray alloc] init];
         _sharedInstance.inFlightTTL = kDefaultInFlightTTL;
         _sharedInstance.inFlightPurgeFrequency = kDefaultInFlightPurgeFrequency;
-        _sharedInstance.internalStartTime = [NSDate date].timeIntervalSinceReferenceDate;
         _sharedInstance.tagToDate = [[NSMutableDictionary alloc] init];
     });
     
@@ -311,7 +308,7 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
         NSDate *now = [NSDate date];
         BOOL result = [now isEqualToDate:[now earlierDate:self.timeOfNextExecution]];
 #ifdef DEBUG
-        NSLog(@"RMPaperTrailLogger shouldBackoff Result: %hhd", result);
+        NSLog(@"RMPaperTrailLogger shouldBackoff Result: %d", result);
 #endif
         return result;
     }
@@ -324,7 +321,7 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     @synchronized (self) {
         BOOL result = self.inFlightDates.count >= self.maxInFlightCount;
 #ifdef DEBUG
-        NSLog(@"RMPaperTrailLogger shouldThrottle Result: %hhd", result);
+        NSLog(@"RMPaperTrailLogger shouldThrottle Result: %d", result);
 #endif
         return result;
     }
