@@ -11,6 +11,9 @@
 
 static NSTimeInterval const kDefaultBaseWaitTime = 30.0; // 30 seconds
 static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
+static NSUInteger const kDefaultMaxInflightCount = 30; // 10 minutes
+static NSTimeInterval const kDefaultInFlightTTL = 60.0 * 2.0; // 2 minutes
+static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 minutes
 
 
 @interface RMPaperTrailLogger () {
@@ -20,6 +23,11 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
     NSTimeInterval _maxWaitTime;
     NSDate *_timeOfNextExecution;
     NSUInteger _failedAttempts;
+    NSMutableArray *_inFlightDates;
+    NSUInteger _maxInFlightCount;
+    NSTimer *_cleanUpTimer;
+    NSTimeInterval _inFlightTTL;
+    NSTimeInterval _inFlightPurgeFrequency;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
@@ -28,6 +36,11 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 @property (nonatomic, assign) NSTimeInterval maxWaitTime;
 @property (nonatomic, strong) NSDate *timeOfNextExecution;
 @property (nonatomic, assign) NSUInteger failedAttempts;
+@property (nonatomic, strong) NSMutableArray *inFlightDates;
+@property (nonatomic, assign) NSUInteger maxInFlightCount;
+@property (nonatomic, strong) NSTimer *cleanUpTimer;
+@property (nonatomic, assign) NSTimeInterval inFlightTTL;
+@property (nonatomic, assign) NSTimeInterval inFlightPurgeFrequency;
 
 @end
 
@@ -55,7 +68,11 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
         _sharedInstance.waitTimeBase = kDefaultBaseWaitTime;
         _sharedInstance.maxWaitTime = kDefaultMaxBackOffTime;
         _sharedInstance.failedAttempts = 0;
+        _sharedInstance.maxInFlightCount = kDefaultMaxInflightCount;
         _sharedInstance.timeOfNextExecution = nil;
+        _sharedInstance.inFlightDates = [[NSMutableArray alloc] init];
+        _sharedInstance.inFlightTTL = kDefaultInFlightTTL;
+        _sharedInstance.inFlightPurgeFrequency = kDefaultInFlightPurgeFrequency;
     });
     
     return _sharedInstance;
@@ -98,9 +115,13 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 
 -(void) logMessage:(DDLogMessage *)logMessage
 {
+#ifdef DEBUG
     NSLog(@"RMPaperTrailLogger Entered logMessage");
-    if (self.host == nil || self.host.length == 0 || self.port == 0 || [self shouldBackoff]) {
+#endif
+    if (self.host == nil || self.host.length == 0 || self.port == 0 || [self shouldBackoff] || [self shouldThrottle]) {
+#ifdef DEBUG
         NSLog(@"RMPaperTrailLogger Exiting logMessage early.");
+#endif
         return;
     }
     
@@ -118,7 +139,7 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
     if (![[NSCharacterSet newlineCharacterSet] characterIsMember:lastChar]) {
         logMsg = [NSString stringWithFormat:@"%@\n", logMsg];
     }
-    
+    [self addToInflightArray];
     if (!self.useTcp) {
         [self sendLogOverUdp:logMsg];
     } else {
@@ -128,7 +149,9 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 
 -(void) sendLogOverUdp:(NSString *) message
 {
+#ifdef DEBUG
     NSLog(@"RMPaperTrailLogger Entered logMessage");
+#endif
     if (message == nil || message.length == 0)
         return;
     
@@ -229,7 +252,9 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 }
 
 -(void)backoff {
+#ifdef DEBUG
     NSLog(@"RMPaperTrailLogger Entered backoff");
+#endif
     @synchronized (self) {
         NSTimeInterval currentTimeInterval = MIN(pow(2.0, self.failedAttempts) * self.waitTimeBase, self.maxWaitTime);
         self.timeOfNextExecution = [[NSDate date] dateByAddingTimeInterval:currentTimeInterval];
@@ -239,7 +264,9 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 }
 
 -(void)resetBackoff {
+#ifdef DEBUG
     NSLog(@"RMPaperTrailLogger Entered resetBackoff");
+#endif
     @synchronized (self) {
         self.timeOfNextExecution = nil;
         self.failedAttempts = 0;
@@ -247,15 +274,69 @@ static NSTimeInterval const kDefaultMaxBackOffTime = 60.0 * 10.0; // 10 minutes
 }
 
 -(BOOL)shouldBackoff {
+#ifdef DEBUG
     NSLog(@"RMPaperTrailLogger Entered shouldBackoff");
+#endif
     @synchronized (self) {
         if (self.timeOfNextExecution == nil) {
             return NO;
         }
         NSDate *now = [NSDate date];
         BOOL result = [now isEqualToDate:[now earlierDate:self.timeOfNextExecution]];
+#ifdef DEBUG
         NSLog(@"RMPaperTrailLogger shouldBackoff Result: %hhd", result);
+#endif
         return result;
+    }
+}
+
+-(BOOL)shouldThrottle {
+#ifdef DEBUG
+    NSLog(@"RMPaperTrailLogger Entered shouldThrottle");
+#endif
+    @synchronized (self) {
+        BOOL result = self.inFlightDates.count >= self.maxInFlightCount;
+#ifdef DEBUG
+        NSLog(@"RMPaperTrailLogger shouldThrottle Result: %hhd", result);
+#endif
+        return result;
+    }
+}
+
+-(void)cleanupInFlightArray {
+    @synchronized (self) {
+        if (!self.inFlightDates || !self.inFlightDates.count) {
+            return;
+        }
+        NSDate *now = [NSDate date];
+        NSDate *cutoffDate = [now dateByAddingTimeInterval: -1.0 * fabs(self.inFlightTTL)];
+        NSPredicate *entriesOlderThanCutoff = [NSPredicate predicateWithFormat:@"self <= %@", cutoffDate];
+        NSArray *filteredArray = [self.inFlightDates filteredArrayUsingPredicate:entriesOlderThanCutoff];
+        [self.inFlightDates removeObjectsInArray:filteredArray];
+    }
+}
+
+-(void)addToInflightArray {
+    @synchronized (self) {
+        [self.inFlightDates addObject:[NSDate date]];
+        if (self.cleanUpTimer == nil) {
+            self.cleanUpTimer = [NSTimer scheduledTimerWithTimeInterval:self.inFlightPurgeFrequency
+                                                                 target:self
+                                                               selector:@selector(cleanupInFlightArray)
+                                                               userInfo:nil
+                                                                repeats:true];
+        }
+    }
+}
+
+-(void)removeFromInflightArray {
+    @synchronized (self) {
+        if (self.inFlightDates.count > 0) {
+            [self.inFlightDates removeObjectAtIndex:0];
+        } else {
+            [self.cleanUpTimer invalidate];
+            self.cleanUpTimer = nil;
+        }
     }
 }
 
