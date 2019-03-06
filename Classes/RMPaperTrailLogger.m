@@ -28,6 +28,8 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     NSTimer *_cleanUpTimer;
     NSTimeInterval _inFlightTTL;
     NSTimeInterval _inFlightPurgeFrequency;
+    NSTimeInterval _internalStartTime;
+    NSMutableDictionary *_tagToDate;
 }
 
 @property (nonatomic, strong) GCDAsyncSocket *tcpSocket;
@@ -37,10 +39,12 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
 @property (nonatomic, strong) NSDate *timeOfNextExecution;
 @property (nonatomic, assign) NSUInteger failedAttempts;
 @property (nonatomic, strong) NSMutableArray *inFlightDates;
+@property (nonatomic, strong) NSMutableDictionary *tagToDate;
 @property (nonatomic, assign) NSUInteger maxInFlightCount;
 @property (nonatomic, strong) NSTimer *cleanUpTimer;
 @property (nonatomic, assign) NSTimeInterval inFlightTTL;
 @property (nonatomic, assign) NSTimeInterval inFlightPurgeFrequency;
+@property (nonatomic, assign) NSTimeInterval internalStartTime;
 
 @end
 
@@ -73,6 +77,8 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
         _sharedInstance.inFlightDates = [[NSMutableArray alloc] init];
         _sharedInstance.inFlightTTL = kDefaultInFlightTTL;
         _sharedInstance.inFlightPurgeFrequency = kDefaultInFlightPurgeFrequency;
+        _sharedInstance.internalStartTime = [NSDate date].timeIntervalSinceReferenceDate;
+        _sharedInstance.tagToDate = [[NSMutableDictionary alloc] init];
     });
     
     return _sharedInstance;
@@ -139,15 +145,20 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     if (![[NSCharacterSet newlineCharacterSet] characterIsMember:lastChar]) {
         logMsg = [NSString stringWithFormat:@"%@\n", logMsg];
     }
-    [self addToInflightArray];
+    //
+    NSDate *inFlightDate = [self addToInflightArray];
+    NSNumber *tagNumber = [self addTagToDate:inFlightDate];
+    long tag = [tagNumber longValue];
+    
     if (!self.useTcp) {
-        [self sendLogOverUdp:logMsg];
+        [self sendLogOverUdp:logMsg tag:tag];
     } else {
-        [self sendLogOverTcp:logMsg];
+        [self sendLogOverTcp:logMsg tag:tag];
     }
 }
 
 -(void) sendLogOverUdp:(NSString *) message
+                   tag:(long)tag
 {
 #ifdef DEBUG
     NSLog(@"RMPaperTrailLogger Entered logMessage");
@@ -162,10 +173,11 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     
     NSData *logData = [message dataUsingEncoding:NSUTF8StringEncoding];
     
-    [self.udpSocket sendData:logData toHost:self.host port:self.port withTimeout:-1 tag:1];
+    [self.udpSocket sendData:logData toHost:self.host port:self.port withTimeout:-1 tag:tag];
 }
 
 -(void) sendLogOverTcp:(NSString *) message
+                   tag:(long)tag
 {
     if (message == nil || message.length == 0)
         return;
@@ -179,7 +191,7 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     }
     
     NSData *logData = [message dataUsingEncoding:NSUTF8StringEncoding];
-    [self.tcpSocket writeData:logData withTimeout:-1 tag:1];
+    [self.tcpSocket writeData:logData withTimeout:-1 tag:tag];
 }
 
 -(void) connectTcpSocket
@@ -196,7 +208,7 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     
     if (self.useTLS) {
 #ifdef DEBUG
-        NSLog(@"Starting TLS");
+        NSLog(@"RMPaperTrailLogger Starting TLS");
 #endif
         [self.tcpSocket startTLS:nil];
     }
@@ -230,9 +242,10 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
 - (void)socket:(GCDAsyncSocket *)sock didWriteDataWithTag:(long)tag
 {
     #ifdef DEBUG
-    NSLog(@"Socket did write data");
+    NSLog(@"RMPaperTrailLogger Socket did write data");
     #endif
     [self resetBackoff];
+    [self removeTagFromInflight: tag];
 }
 
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didSendDataWithTag:(long)tag
@@ -241,6 +254,7 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     NSLog(@"RMPaperTrailLogger UDP Socket did write data");
     #endif
     [self resetBackoff];
+    [self removeTagFromInflight: tag];
 }
 
 - (void)udpSocket:(GCDAsyncUdpSocket *)sock didNotSendDataWithTag:(long)tag dueToError:(NSError *)error
@@ -249,6 +263,19 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
     NSLog(@"RMPaperTrailLogger UDP Socket Error: %@", error.localizedDescription);
     #endif
     [self backoff];
+    [self removeTagFromInflight: tag];
+}
+
+-(void) removeTagFromInflight:(long)tag {
+    @synchronized (self) {
+        NSNumber *key = @(tag);
+        NSDate *date = self.tagToDate[key];
+        if (date == nil) {
+            return;
+        }
+        [self.inFlightDates removeObject:date];
+        [self.tagToDate removeObjectForKey:key];
+    }
 }
 
 -(void)backoff {
@@ -306,19 +333,32 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
 -(void)cleanupInFlightArray {
     @synchronized (self) {
         if (!self.inFlightDates || !self.inFlightDates.count) {
+            [self stopCleanupTimer];
             return;
         }
         NSDate *now = [NSDate date];
         NSDate *cutoffDate = [now dateByAddingTimeInterval: -1.0 * fabs(self.inFlightTTL)];
         NSPredicate *entriesOlderThanCutoff = [NSPredicate predicateWithFormat:@"self <= %@", cutoffDate];
-        NSArray *filteredArray = [self.inFlightDates filteredArrayUsingPredicate:entriesOlderThanCutoff];
-        [self.inFlightDates removeObjectsInArray:filteredArray];
+        NSArray *datesToRemove = [self.inFlightDates filteredArrayUsingPredicate:entriesOlderThanCutoff];
+        [self.inFlightDates removeObjectsInArray:datesToRemove];
+        [self removeDatesFromTagToDate: datesToRemove];
+        if (!self.inFlightDates || !self.inFlightDates.count) {
+            [self stopCleanupTimer];
+        }
     }
 }
 
--(void)addToInflightArray {
+-(void)removeDatesFromTagToDate:(NSArray *)datesToRemove {
+    for (NSDate *date in datesToRemove) {
+        NSArray *keysToRemove = [self.tagToDate allKeysForObject:date];
+        [self.tagToDate removeObjectsForKeys:keysToRemove];
+    }
+}
+
+-(NSDate *)addToInflightArray {
     @synchronized (self) {
-        [self.inFlightDates addObject:[NSDate date]];
+        NSDate *date = [NSDate date];
+        [self.inFlightDates addObject:date];
         if (self.cleanUpTimer == nil) {
             self.cleanUpTimer = [NSTimer scheduledTimerWithTimeInterval:self.inFlightPurgeFrequency
                                                                  target:self
@@ -326,6 +366,7 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
                                                                userInfo:nil
                                                                 repeats:true];
         }
+        return date;
     }
 }
 
@@ -334,9 +375,22 @@ static NSTimeInterval const kDefaultInFlightPurgeFrequency = 60.0 * 2.0; // 2 mi
         if (self.inFlightDates.count > 0) {
             [self.inFlightDates removeObjectAtIndex:0];
         } else {
-            [self.cleanUpTimer invalidate];
-            self.cleanUpTimer = nil;
+            [self stopCleanupTimer];
+            [self.tagToDate removeAllObjects];
         }
+    }
+}
+
+-(void)stopCleanupTimer {
+    [self.cleanUpTimer invalidate];
+    self.cleanUpTimer = nil;
+}
+
+-(NSNumber *)addTagToDate: (NSDate *)date {
+    @synchronized (self) {
+        NSNumber *key = @(self.tagToDate.count);
+        self.tagToDate[key] = date;
+        return key;
     }
 }
 
